@@ -129,11 +129,11 @@ class DallEAPIWrapper(BaseModel):
             }
 
             if not self.client:
-                self.client = openai.OpenAI(**client_params).images
+                self.client = openai.OpenAI(**client_params).images  # type: ignore[arg-type]
             if not self.async_client:
-                self.async_client = openai.AsyncOpenAI(**client_params).images
+                self.async_client = openai.AsyncOpenAI(**client_params).images  # type: ignore[arg-type]
         elif not self.client:
-            self.client = openai.Image
+            self.client = openai.Image  # type: ignore[attr-defined]
         else:
             pass
         return self
@@ -142,14 +142,18 @@ class DallEAPIWrapper(BaseModel):
         """Run query through OpenAI and parse result."""
 
         if is_openai_v1():
-            response = self.client.generate(
-                prompt=query,
-                n=self.n,
-                size=self.size,
-                model=self.model_name,
-                quality=self.quality,
+            params = {
+                "prompt": query,
+                "n": self.n,
+                "size": self.size,
+                "model": self.model_name,
+            }
+            if self.model_name != "dall-e-2":
+                params["quality"] = self.quality
+            response = self.client.generate(**params)
+            image_urls = self.separator.join(
+                [item.url for item in response.data if item.url]
             )
-            image_urls = self.separator.join([item.url for item in response.data])
         else:
             response = self.client.create(
                 prompt=query, n=self.n, size=self.size, model=self.model_name

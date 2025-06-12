@@ -1,4 +1,3 @@
-import warnings
 from typing import Iterator, Literal, Optional
 
 from langchain_core.document_loaders import BaseLoader
@@ -64,159 +63,64 @@ class FireCrawlLoader(BaseLoader):
 
     """  # noqa: E501
 
-    def legacy_crawler_options_adapter(self, params: dict) -> dict:
-        use_legacy_options = False
-        legacy_keys = [
-            "includes",
-            "excludes",
-            "allowBackwardCrawling",
-            "allowExternalContentLinks",
-            "pageOptions",
-        ]
-        for key in legacy_keys:
-            if params.get(key):
-                use_legacy_options = True
-                break
-
-        if use_legacy_options:
-            warnings.warn(
-                "Deprecated parameters detected. See Firecrawl v1 docs for updates.",
-                DeprecationWarning,
+    def _prepare_crawler_options(self, params: dict) -> dict:
+        """Prepare crawler options for the new API format."""
+        # Transform old parameter names to new ones if present
+        if "includes" in params:
+            params["includePaths"] = params.pop("includes")
+        if "excludes" in params:
+            params["excludePaths"] = params.pop("excludes")
+        if "allowBackwardCrawling" in params:
+            params["allowBackwardLinks"] = params.pop("allowBackwardCrawling")
+        if "allowExternalContentLinks" in params:
+            params["allowExternalLinks"] = params.pop("allowExternalContentLinks")
+        if "pageOptions" in params:
+            params["scrapeOptions"] = self._prepare_scrape_options(
+                params.pop("pageOptions")
             )
-            if "includes" in params:
-                if params["includes"] is True:
-                    params["includePaths"] = params["includes"]
-                del params["includes"]
-
-            if "excludes" in params:
-                if params["excludes"] is True:
-                    params["excludePaths"] = params["excludes"]
-                del params["excludes"]
-
-            if "allowBackwardCrawling" in params:
-                if params["allowBackwardCrawling"] is True:
-                    params["allowBackwardLinks"] = params["allowBackwardCrawling"]
-                del params["allowBackwardCrawling"]
-
-            if "allowExternalContentLinks" in params:
-                if params["allowExternalContentLinks"] is True:
-                    params["allowExternalLinks"] = params["allowExternalContentLinks"]
-                del params["allowExternalContentLinks"]
-
-            if "pageOptions" in params:
-                if isinstance(params["pageOptions"], dict):
-                    params["scrapeOptions"] = self.legacy_scrape_options_adapter(
-                        params["pageOptions"]
-                    )
-                del params["pageOptions"]
 
         return params
 
-    def legacy_scrape_options_adapter(self, params: dict) -> dict:
-        use_legacy_options = False
-        formats = ["markdown"]
-
+    def _prepare_scrape_options(self, params: dict) -> dict:
+        """Prepare scrape options for the new API format."""
+        # Handle extractor options transformation
         if "extractorOptions" in params:
-            if "mode" in params["extractorOptions"]:
-                if (
-                    params["extractorOptions"]["mode"] == "llm-extraction"
-                    or params["extractorOptions"]["mode"]
-                    == "llm-extraction-from-raw-html"
-                    or params["extractorOptions"]["mode"]
-                    == "llm-extraction-from-markdown"
-                ):
-                    use_legacy_options = True
-                    if "extractionPrompt" in params["extractorOptions"]:
-                        if params["extractorOptions"]["extractionPrompt"]:
-                            params["prompt"] = params["extractorOptions"][
-                                "extractionPrompt"
-                            ]
-                        else:
-                            params["prompt"] = params["extractorOptions"].get(
-                                "extractionPrompt",
-                                "Extract page information based on the schema.",
-                            )
+            extractor = params.pop("extractorOptions")
+            if "extractionPrompt" in extractor:
+                params["prompt"] = extractor["extractionPrompt"]
+            if "extractionSchema" in extractor:
+                params["schema"] = extractor["extractionSchema"]
+            if "userPrompt" in extractor:
+                params["prompt"] = extractor["userPrompt"]
 
-                    if "extractionSchema" in params["extractorOptions"]:
-                        if params["extractorOptions"]["extractionSchema"]:
-                            params["schema"] = params["extractorOptions"][
-                                "extractionSchema"
-                            ]
+        # Transform include/exclude options to formats
+        formats = []
+        if params.pop("includeMarkdown", True):  # Default to True
+            formats.append("markdown")
+        if params.pop("includeHtml", False):
+            formats.append("html")
+        if params.pop("includeRawHtml", False):
+            formats.append("rawHtml")
+        if params.pop("includeExtract", False):
+            formats.append("extract")
+        if params.pop("includeLinks", False):
+            formats.append("links")
+        if params.pop("screenshot", False):
+            formats.append("screenshot")
+        if params.pop("fullPageScreenshot", False):
+            formats.append("screenshot@fullPage")
 
-                    if "userPrompt" in params["extractorOptions"]:
-                        if params["extractorOptions"]["userPrompt"]:
-                            params["prompt"] = params["extractorOptions"]["userPrompt"]
+        # Transform tag options
+        if "onlyIncludeTags" in params:
+            params["includeTags"] = params.pop("onlyIncludeTags")
+        if "removeTags" in params:
+            params["excludeTags"] = params.pop("removeTags")
 
-                    del params["extractorOptions"]
-
-        scrape_keys = [
-            "includeMarkdown",
-            "includeHtml",
-            "includeRawHtml",
-            "includeExtract",
-            "includeLinks",
-            "screenshot",
-            "fullPageScreenshot",
-            "onlyIncludeTags",
-            "removeTags",
-        ]
-        for key in scrape_keys:
-            if params.get(key):
-                use_legacy_options = True
-                break
-
-        if use_legacy_options:
-            warnings.warn(
-                "Deprecated parameters detected. See Firecrawl v1 docs for updates.",
-                DeprecationWarning,
-            )
-            if "includeMarkdown" in params:
-                if params["includeMarkdown"] is False:
-                    formats.remove("markdown")
-                del params["includeMarkdown"]
-
-            if "includeHtml" in params:
-                if params["includeHtml"] is True:
-                    formats.append("html")
-                del params["includeHtml"]
-
-            if "includeRawHtml" in params:
-                if params["includeRawHtml"] is True:
-                    formats.append("rawHtml")
-                del params["includeRawHtml"]
-
-            if "includeExtract" in params:
-                if params["includeExtract"] is True:
-                    formats.append("extract")
-                del params["includeExtract"]
-
-            if "includeLinks" in params:
-                if params["includeLinks"] is True:
-                    formats.append("links")
-                del params["includeLinks"]
-
-            if "screenshot" in params:
-                if params["screenshot"] is True:
-                    formats.append("screenshot")
-                del params["screenshot"]
-
-            if "fullPageScreenshot" in params:
-                if params["fullPageScreenshot"] is True:
-                    formats.append("screenshot@fullPage")
-                del params["fullPageScreenshot"]
-
-            if "onlyIncludeTags" in params:
-                if params["onlyIncludeTags"] is True:
-                    params["includeTags"] = params["onlyIncludeTags"]
-                del params["onlyIncludeTags"]
-
-            if "removeTags" in params:
-                if params["removeTags"] is True:
-                    params["excludeTags"] = params["removeTags"]
-                del params["removeTags"]
-
-        if "formats" not in params:
+        # Set formats if not already specified
+        if "formats" not in params and formats:
             params["formats"] = formats
+        elif "formats" not in params:
+            params["formats"] = ["markdown"]  # Default
 
         return params
 
@@ -254,10 +158,10 @@ class FireCrawlLoader(BaseLoader):
             raise ImportError(
                 "`firecrawl` package not found, please run `pip install firecrawl-py`"
             )
-        if mode not in ("crawl", "scrape", "search", "map", "extract", "search"):
+        if mode not in ("crawl", "scrape", "search", "map", "extract"):
             raise ValueError(
                 f"""Invalid mode '{mode}'.
-                Allowed: 'crawl', 'scrape', 'search', 'map', 'extract', 'search'."""
+                Allowed: 'crawl', 'scrape', 'search', 'map', 'extract'."""
             )
 
         if not url:
@@ -273,45 +177,48 @@ class FireCrawlLoader(BaseLoader):
         if self.mode == "scrape":
             firecrawl_docs = [
                 self.firecrawl.scrape_url(
-                    self.url, params=self.legacy_scrape_options_adapter(self.params)
+                    self.url, **self._prepare_scrape_options(self.params.copy())
                 )
             ]
         elif self.mode == "crawl":
             if not self.url:
                 raise ValueError("URL is required for crawl mode")
             crawl_response = self.firecrawl.crawl_url(
-                self.url, params=self.legacy_crawler_options_adapter(self.params)
+                self.url, **self._prepare_crawler_options(self.params.copy())
             )
             firecrawl_docs = crawl_response.get("data", [])
         elif self.mode == "map":
             if not self.url:
                 raise ValueError("URL is required for map mode")
-            firecrawl_docs = self.firecrawl.map_url(self.url, params=self.params)
+            firecrawl_docs = self.firecrawl.map_url(self.url, **self.params)
         elif self.mode == "extract":
             if not self.url:
                 raise ValueError("URL is required for extract mode")
-            firecrawl_docs = [
-                str(self.firecrawl.extract([self.url], params=self.params))
-            ]
+            firecrawl_docs = [str(self.firecrawl.extract([self.url], **self.params))]
         elif self.mode == "search":
             firecrawl_docs = self.firecrawl.search(
                 query=self.params.get("query"),
-                params=self.params,
+                **self.params,
             )
         else:
             raise ValueError(
                 f"""Invalid mode '{self.mode}'.
                 Allowed: 'crawl', 'scrape', 'map', 'extract', 'search'."""
             )
+
         for doc in firecrawl_docs:
             if self.mode == "map" or self.mode == "extract":
                 page_content = doc
-                metadata = {}
+                metadata: dict[str, str] = {}
             else:
+                # New ScrapeResponse object format only
                 page_content = (
-                    doc.get("markdown") or doc.get("html") or doc.get("rawHtml", "")
+                    getattr(doc, "markdown", None)
+                    or getattr(doc, "html", None)
+                    or getattr(doc, "rawHtml", None)
+                    or ""
                 )
-                metadata = doc.get("metadata", {})
+                metadata = getattr(doc, "metadata", {}) or {}
             if not page_content:
                 continue
             yield Document(
